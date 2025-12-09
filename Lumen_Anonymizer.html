@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumen Data Anonymizer Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+    <style>
+        :root { --lumen-orange: #FF8800; }
+        .bg-lumen { background-color: var(--lumen-orange); }
+        .text-lumen { color: var(--lumen-orange); }
+        .ts-control { padding: 16px !important; font-size: 1.1rem; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-100 to-gray-300 min-h-screen py-12">
+    <div class="max-w-6xl mx-auto bg-white rounded-3xl shadow-2xl p-12">
+        <h1 class="text-6xl font-extrabold text-center mb-12">
+            <span class="text-lumen">Lumen</span> Data Anonymizer Tool
+        </h1>
+
+        <div id="msg" class="hidden text-center p-8 rounded-3xl text-white font-bold text-2xl mb-10"></div>
+
+        <!-- Upload Section -->
+        <div class="bg-gradient-to-r from-orange-50 to-white p-12 rounded-3xl border-l-8 border-lumen mb-12">
+            <h2 class="text-3xl font-bold mb-8 flex items-center">
+                <span class="bg-lumen text-white w-14 h-14 rounded-full flex items-center justify-center mr-6 text-2xl">1</span>
+                Upload Your Excel File
+            </h2>
+            <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden" onchange="loadFile(event)">
+            <label for="fileInput" class="block cursor-pointer border-4 border-dashed border-lumen rounded-3xl p-20 text-center hover:bg-orange-50 transition text-2xl font-medium text-gray-700">
+                <span id="fileName">Click here or drop your Excel file</span>
+            </label>
+        </div>
+
+        <!-- Auto Download Note -->
+        <div class="bg-yellow-50 border-l-4 border-yellow-600 p-8 rounded-3xl mb-12 text-center">
+            <p class="text-2xl font-bold text-yellow-800">
+                The anonymized file will <u>automatically download</u> to your Downloads folder after you click the button.
+            </p>
+        </div>
+
+        <!-- Columns Section -->
+        <div id="columnsSection" class="hidden bg-gradient-to-r from-blue-50 to-white p-12 rounded-3xl border-l-8 border-lumen mb-12">
+            <h2 class="text-3xl font-bold mb-10 flex items-center">
+                <span class="bg-lumen text-white w-14 h-14 rounded-full flex items-center justify-center mr-6 text-2xl">2</span>
+                Select Columns to Mask or Delete
+            </h2>
+            <div class="grid lg:grid-cols-2 gap-16">
+                <div>
+                    <label class="text-2xl font-bold block mb-6 text-lumen">Mask with Fake Data</label>
+                    <select id="maskCols" multiple></select>
+                </div>
+                <div>
+                    <label class="text-2xl font-bold block mb-6 text-red-600">Delete Completely</label>
+                    <select id="deleteCols" multiple></select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Run Button -->
+        <div id="runBtn" class="hidden text-center">
+            <button onclick="runAnonymization()" 
+                    class="px-20 py-10 bg-lumen text-white font-extrabold text-4xl rounded-3xl hover:bg-orange-700 shadow-2xl transform hover:scale-105 transition duration-300">
+                Generate Anonymized File
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let wb, sheetName, headers = [], tomSelectMask, tomSelectDelete;
+
+        const randomStr = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+        const fakeEmail = () => `${randomStr().toLowerCase()}${Math.floor(Math.random()*9999)}@masked.lumen.com`;
+        const fakeName = () => `User_${randomStr()}`;
+        const fakePhone = () => `+91 99999 ${Math.floor(Math.random()*99999)}`;
+        const fakeGeneric = () => `FAKE_${randomStr()}`;
+
+        function loadFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            document.getElementById('fileName').textContent = `Loaded: ${file.name}`;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                wb = XLSX.read(e.target.result, {type: 'array', cellDates:true});
+                sheetName = wb.SheetNames[0];
+                const ws = wb.Sheets[sheetName];
+                headers = XLSX.utils.sheet_to_json(ws, {header:1})[0] || [];
+                headers = [...new Set(headers.map(h => String(h).trim()))].filter(Boolean);
+
+                populateColumns();
+                document.getElementById('columnsSection').classList.remove('hidden');
+                document.getElementById('runBtn').classList.remove('hidden');
+                showMsg('bg-green-600', `Ready! ${headers.length} columns detected. Choose what to mask or delete.`);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function populateColumns() {
+            if (tomSelectMask) tomSelectMask.destroy();
+            if (tomSelectDelete) tomSelectDelete.destroy();
+
+            const maskEl = document.getElementById('maskCols');
+            const deleteEl = document.getElementById('deleteCols');
+            maskEl.innerHTML = deleteEl.innerHTML = '';
+
+            headers.forEach(col => {
+                const opt = new Option(col, col);
+                maskEl.add(opt.cloneNode(true));
+                deleteEl.add(opt.cloneNode(true));
+            });
+
+            tomSelectMask = new TomSelect('#maskCols', {plugins: ['remove_button'], placeholder: 'Choose columns to mask...'});
+            tomSelectDelete = new TomSelect('#deleteCols', {plugins: ['remove_button'], placeholder: 'Choose columns to delete...'});
+        }
+
+        function runAnonymization() {
+            const maskThese = tomSelectMask.items;
+            const deleteThese = tomSelectDelete.items;
+
+            if (maskThese.length === 0 && deleteThese.length === 0) {
+                return showMsg('bg-yellow-600', 'Please select at least one column to mask or delete!');
+            }
+
+            const ws = wb.Sheets[sheetName];
+            const range = XLSX.utils.decode_range(ws['!ref']);
+
+            // MASK values (preserve formatting)
+            for (let r = range.s.r + 1; r <= range.e.r; r++) {
+                headers.forEach((h, c) => {
+                    const addr = XLSX.utils.encode_cell({r, c});
+                    const cell = ws[addr];
+                    if (cell && maskThese.includes(String(h))) {
+                        const fmt = cell.z;
+                        const col = String(h).toLowerCase();
+                        let fake;
+
+                        if (col.includes('email') || col.includes('mail')) fake = fakeEmail();
+                        else if (col.includes('name') || col.includes('first') || col.includes('last') || col.includes('user')) fake = fakeName();
+                        else if (col.includes('phone') || col.includes('mobile') || col.includes('tel')) fake = fakePhone();
+                        else fake = fakeGeneric();
+
+                        cell.v = fake;
+                        if (fmt) cell.z = fmt;
+                        cell.t = 's';
+                    }
+                });
+            }
+
+            // DELETE columns
+            const keepCols = headers.filter(h => !deleteThese.includes(String(h)));
+            const rawData = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+            const newData = rawData.map(row => keepCols.map(h => row[headers.indexOf(h)] ?? ""));
+
+            const newWs = XLSX.utils.aoa_to_sheet([keepCols, ...newData.slice(1)]);
+            const newWb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(newWb, newWs, "Anonymized");
+
+            const timestamp = new Date().toISOString().slice(0,19).replace(/:/g,'-');
+            const filename = `LUMEN_ANONYMIZED_${timestamp}.xlsx`;
+
+            XLSX.writeFile(newWb, filename);
+            showMsg('bg-green-700', `SUCCESS!<br><strong>${filename}</strong><br>is downloading now → check your Downloads folder`);
+        }
+
+        function showMsg(color, html) {
+            const el = document.getElementById('msg');
+            el.className = `block ${color} p-10 rounded-3xl shadow-2xl text-2xl text-center`;
+            el.innerHTML = html;
+            setTimeout(() => el.classList.add('hidden'), 12000);
+        }
+    </script>
+</body>
+</html>
